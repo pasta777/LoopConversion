@@ -17,6 +17,7 @@ namespace {
     struct LoopConversion : public LoopPass {
         std::vector<BasicBlock*> LoopBasicBlocks;
         std::unordered_map<Value*, Value*> VariablesMap;
+        Value* Target;
 
         static char ID;
         LoopConversion() : LoopPass(ID) {}
@@ -91,9 +92,9 @@ namespace {
             }
             return true;
         }
-        bool checkVariables(BasicBlock* InLoop, BasicBlock* IterateBlock) {
+        bool checkVariables(BasicBlock* InLoop, BasicBlock* IterateBlock, bool &is_add) {
             bool x_check = false;
-            bool is_add = false;
+            is_add = false;
             for(Instruction &I : *InLoop) {
                 //errs() << I << "\n";
                 if(AddOperator* AO = dyn_cast<AddOperator>(&I)) {
@@ -284,27 +285,115 @@ namespace {
             }
             return true;
         }
+
+        void setTarget(const BasicBlock* inLoop){
+            for (const Instruction &I : *inLoop){
+                if (isa<LoadInst>(&I)){
+                    if (VariablesMap.find(I.getOperand(0)) == VariablesMap.end()){
+                        Target = I.getOperand(0);
+                    } else {
+                        Target = VariablesMap[I.getOperand(0)];
+                    }
+                }
+            }
+        }
+
+        void editCompareBB(BasicBlock* cmpBB, bool isAdd){
+            BranchInst* branchInst = nullptr;
+            ICmpInst* cmpInst = nullptr;
+            BasicBlock* loopOutBB = nullptr;
+            bool cmpHasEq = false;
+
+            for (Instruction &I : *cmpBB) {
+                if (auto *br = dyn_cast<BranchInst>(&I)) {
+                    branchInst = br;
+                    loopOutBB = br->getSuccessor(1);
+                }
+                if (auto *cmp = dyn_cast<ICmpInst>(&I)) {
+                    cmpHasEq = cmp->getPredicate() == ICmpInst::ICMP_SGE 
+                        || cmp->getPredicate() == ICmpInst::ICMP_SLE;
+                    cmpInst = cmp;
+                }
+            }
+
+            if (!branchInst || !cmpInst || !loopOutBB) {
+                errs() << "ay cabroon\n";
+                return;
+            }
+            branchInst->eraseFromParent();
+
+            IRBuilder<> builder(cmpBB);
+            builder.SetInsertPoint(cmpBB);
+            Value* range = builder.CreateSub(cmpInst->getOperand(1), cmpInst->getOperand(0), "range");
+            cmpInst->eraseFromParent();
+            if (auto* ai = dyn_cast<AllocaInst>(Target)) {
+                Value* loadedTarget = builder.CreateLoad(ai->getAllocatedType(), ai, "loadedTarget");
+                Value* newValue = builder.CreateAdd(loadedTarget, range, "newValue");
+                
+                Value* finalValue = newValue;
+                if (cmpHasEq) {
+                    finalValue 
+                        = isAdd
+                        ? builder.CreateAdd(newValue, ConstantInt::get(Type::getInt32Ty(cmpInst->getContext()), 1), "finalValue")
+                        : builder.CreateSub(newValue, ConstantInt::get(Type::getInt32Ty(cmpInst->getContext()), 1), "finalValue");
+                }
+                builder.CreateStore(finalValue, ai);
+            } else {
+                errs() << "???\n";
+            }
+
+            builder.CreateBr(loopOutBB);
+        }
+
+        void deleteBBs(std::vector<BasicBlock *> &blocks){
+            for (BasicBlock *BB : blocks) {
+                
+                while (!BB->empty()){
+                    Instruction &I = BB->back();
+                    I.dropAllReferences();
+                    I.eraseFromParent();
+                }
+                BB->eraseFromParent();
+            }
+        }
+
+        template<typename... Blocks>
+        void deleteBBs(Blocks... bbs) {
+            std::vector<BasicBlock*> blocks = {bbs...};
+            deleteBBs(blocks);
+        }
+
         bool runOnLoop(Loop *L, LPPassManager &LPM) override {
             mapVariables(L);
             LoopBasicBlocks = L->getBlocksVector();
+            
             BasicBlock* CompareBasicBlock = findCompareBasicBlock(LoopBasicBlocks);
             if(!CompareBasicBlock) {
                 errs() << "CBB not found\n";
                 return false;
             }
+
             BasicBlock* InLoop = findLoopBlock(CompareBasicBlock);
             if(!InLoop) {
                 errs() << "IL not found in runOnLoop function\n";
                 return false;
             }
+
             BasicBlock* IterateBlock = findIterateBlock(InLoop);
             if(!IterateBlock) {
                 errs() << "IB not found in runOnLoop function\n";
                 return false;
             }
-            bool result = checkInstructions(InLoop) && checkInstructions(IterateBlock)
-                    && checkVariables(InLoop, IterateBlock) && checkCompareBlock(CompareBasicBlock, IterateBlock);
-            errs() << result << "\n";
+
+            bool isAdd;
+            const bool result = checkInstructions(InLoop) && checkInstructions(IterateBlock)
+                    && checkVariables(InLoop, IterateBlock, isAdd) && checkCompareBlock(CompareBasicBlock, IterateBlock);
+            
+            if (result) {
+                    setTarget(InLoop);
+                    editCompareBB(CompareBasicBlock, isAdd);
+                    deleteBBs(InLoop, IterateBlock);
+            }
             return result;
         }
     };
