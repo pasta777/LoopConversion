@@ -43,14 +43,6 @@ namespace {
             }
             return nullptr;
         }
-        BasicBlock *findEndBlock(BasicBlock* CompareBasicBlock) {
-            for(Instruction &I : *CompareBasicBlock) {
-                if(BranchInst* BI = dyn_cast<BranchInst>(&I)) {
-                    return BI->getSuccessor(1);
-                }
-            }
-            return nullptr;
-        }
         BasicBlock *findLoopBlock(BasicBlock* CompareBasicBlock) {
             for(Instruction &I : *CompareBasicBlock) {
                 if(BranchInst* BI = dyn_cast<BranchInst>(&I)) {
