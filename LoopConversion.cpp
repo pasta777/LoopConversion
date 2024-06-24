@@ -385,6 +385,8 @@ namespace {
                     setTarget(InLoop);
                     editCompareBB(CompareBasicBlock, isAdd);
                     deleteBBs(InLoop, IterateBlock);
+            } else {
+                errs() << "The conditions have not been met!\n";
             }
             return result;
         }
