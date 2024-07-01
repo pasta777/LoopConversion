@@ -234,6 +234,8 @@ namespace {
                 return false;
             }
             for(Instruction &I : *CompareBlock) {
+                if(isa<BinaryOperator>(&I))
+                    return false;
                 if(ICmpInst* CMP = dyn_cast<ICmpInst>(&I)) {
                     CmpInst::Predicate p = CMP->getSignedPredicate();
                     if(p == CmpInst::ICMP_SLT || p == CmpInst::ICMP_SLE) {
