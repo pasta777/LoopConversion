@@ -1,0 +1,33 @@
+data $.fmt = { b 37, b 100, b 10, b 0 }
+
+export
+function w $main() {
+@start
+	%n =l alloc4 4
+	%i =l alloc4 4
+
+	storew 0, %n
+	storew 0, %i
+
+@loop.cond
+	%i.1 =w loadw %i
+	%i.cmp15 =w csltw %i.1, 15
+	jnz %i.cmp15, @loop.body, @loop.end
+
+@loop.body
+	%n.1 =w loadw %n
+	%n.1 =w add %n.1, 1
+	storew %n.1, %n
+
+@loop.iterate
+	%i.2 =w loadw %i
+	%i.2 =w add %i.2, 1
+	storew %i.2, %i
+	jmp @loop.cond
+
+@loop.end
+	%n.2 =w loadw %n
+	%.1 =w call $printf(l $.fmt, w %n.2)
+
+	ret 0
+}
